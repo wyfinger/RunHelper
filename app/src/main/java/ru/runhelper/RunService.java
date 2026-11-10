@@ -21,30 +21,43 @@ import android.os.IBinder;
 import android.os.Looper;
 import android.os.SystemClock;
 import android.speech.tts.TextToSpeech;
+import android.speech.tts.UtteranceProgressListener;
 
 import java.util.ArrayDeque;
+import java.util.HashMap;
 import java.util.Iterator;
 import java.util.Locale;
+import java.util.Map;
 
 public class RunService extends Service implements LocationListener, TextToSpeech.OnInitListener {
     public static final String ACTION_START = "ru.runhelper.START";
     public static final String ACTION_STOP = "ru.runhelper.STOP";
+    public static final String ACTION_UI_UPDATE = "ru.runhelper.UI_UPDATE";
+    public static final String PREF_SPEECH_LOG = "speech_log";
     private static final String CHANNEL = "run_status";
     private static final int NOTIFICATION_ID = 7;
     private static final long MAX_SPEED_SAMPLE_GAP_MS = 5_000L;
+    private static final long DUCK_TAIL_MS = 1_000L;
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final ArrayDeque<SpeedSample> speedSamples = new ArrayDeque<>();
+    private final Map<String, String> pendingLogEntries = new HashMap<>();
     private LocationManager locationManager;
     private TextToSpeech tts;
     private AudioManager audioManager;
     private AudioFocusRequest focusRequest;
+    private String activeUtteranceId;
     private long startedAt;
     private long nextAnnouncement;
     private long intervalMs = 60_000L;
     private double speedMps;
+    private double totalDistanceMeters;
+    private SpeedSample lastSessionSample;
     private boolean hasSpeed;
     private boolean running;
     private boolean ttsReady;
+    private final Runnable duckFailsafe = new Runnable() {
+        @Override public void run() { releaseDuck(activeUtteranceId); }
+    };
 
     private static final class SpeedSample {
         final long timeMs;
@@ -87,9 +100,13 @@ public class RunService extends Service implements LocationListener, TextToSpeec
         startedAt = SystemClock.elapsedRealtime();
         nextAnnouncement = startedAt + intervalMs;
         speedSamples.clear();
+        lastSessionSample = null;
+        totalDistanceMeters = 0;
         speedMps = 0;
         hasSpeed = false;
-        getSharedPreferences("run", MODE_PRIVATE).edit().putBoolean("running", true).apply();
+        getSharedPreferences("run", MODE_PRIVATE).edit()
+                .putBoolean("running", true).putString(PREF_SPEECH_LOG, "").apply();
+        publishUiUpdate();
         try {
             if (checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED)
                 locationManager.requestLocationUpdates(LocationManager.GPS_PROVIDER, 1000L, 0f, this, Looper.getMainLooper());
@@ -106,7 +123,14 @@ public class RunService extends Service implements LocationListener, TextToSpeec
                 speedMps = hasSpeed ? speedMps * 0.65 + measured * 0.35 : measured;
                 hasSpeed = true;
                 long sampleTime = SystemClock.elapsedRealtime();
-                speedSamples.addLast(new SpeedSample(sampleTime, measured));
+                SpeedSample sample = new SpeedSample(sampleTime, measured);
+                if (lastSessionSample != null) {
+                    long gapMs = sample.timeMs - lastSessionSample.timeMs;
+                    if (gapMs > 0 && gapMs <= MAX_SPEED_SAMPLE_GAP_MS)
+                        totalDistanceMeters += (lastSessionSample.speedMps + sample.speedMps) * 0.5 * (gapMs / 1000.0);
+                }
+                lastSessionSample = sample;
+                speedSamples.addLast(sample);
                 trimSpeedSamples(sampleTime - intervalMs);
             }
         }
@@ -115,13 +139,18 @@ public class RunService extends Service implements LocationListener, TextToSpeec
 
     private void announce() {
         if (!ttsReady || tts == null) return;
-        long minutes = Math.max(1, (SystemClock.elapsedRealtime() - startedAt) / 60_000L);
+        long elapsedMs = SystemClock.elapsedRealtime() - startedAt;
+        long minutes = Math.max(1, elapsedMs / 60_000L);
         String message = numberWords(minutes) + " " + minuteForm(minutes) + ". Темп — ";
         int averagePace = averagePaceSecondsPerKm();
         message += averagePace >= 0 ? paceSpeech(averagePace) : "пока не рассчитан";
-        requestDuck();
-        if (Build.VERSION.SDK_INT >= 21) tts.speak(message, TextToSpeech.QUEUE_FLUSH, null, "runhelper_" + SystemClock.elapsedRealtime());
-        else tts.speak(message, TextToSpeech.QUEUE_FLUSH, null);
+        String logEntry = formatClock(Math.round(elapsedMs / 1000.0)) + " — темп " +
+                (averagePace >= 0 ? formatClock(averagePace) : " не рассчитан");
+        String utteranceId = "runhelper_" + SystemClock.elapsedRealtime();
+        requestDuck(utteranceId);
+        if (tts.speak(message, TextToSpeech.QUEUE_FLUSH, null, utteranceId) == TextToSpeech.ERROR)
+            releaseDuck(utteranceId);
+        else pendingLogEntries.put(utteranceId, logEntry);
     }
 
     private void trimSpeedSamples(long cutoffMs) {
@@ -169,22 +198,68 @@ public class RunService extends Service implements LocationListener, TextToSpeec
                 numberWords(paceSeconds) + " " + secondForm(paceSeconds);
     }
 
-    private void requestDuck() {
+    private void requestDuck(String utteranceId) {
+        activeUtteranceId = utteranceId;
+        handler.removeCallbacks(duckFailsafe);
         if (Build.VERSION.SDK_INT >= 26) {
             AudioAttributes attrs = new AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_ASSISTANCE_ACCESSIBILITY).setContentType(AudioAttributes.CONTENT_TYPE_SPEECH).build();
             focusRequest = new AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK).setAudioAttributes(attrs).setWillPauseWhenDucked(false).build();
             audioManager.requestAudioFocus(focusRequest);
         } else audioManager.requestAudioFocus(null, AudioManager.STREAM_MUSIC, AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK);
-        handler.postDelayed(() -> {
-            if (Build.VERSION.SDK_INT >= 26 && focusRequest != null) audioManager.abandonAudioFocusRequest(focusRequest);
-            else audioManager.abandonAudioFocus(null);
-        }, 12_000L);
+        handler.postDelayed(duckFailsafe, 6_000L);
+    }
+
+    private void releaseDuck(String utteranceId) {
+        if (utteranceId == null || !utteranceId.equals(activeUtteranceId)) return;
+        handler.removeCallbacks(duckFailsafe);
+        activeUtteranceId = null;
+        if (Build.VERSION.SDK_INT >= 26 && focusRequest != null) {
+            audioManager.abandonAudioFocusRequest(focusRequest);
+            focusRequest = null;
+        } else audioManager.abandonAudioFocus(null);
+    }
+
+    private void releaseDuckAfterSpeech(String utteranceId) {
+        if (utteranceId == null || !utteranceId.equals(activeUtteranceId)) return;
+        handler.removeCallbacks(duckFailsafe);
+        handler.postDelayed(() -> releaseDuck(utteranceId), DUCK_TAIL_MS);
+    }
+
+    private void appendSpeechLog(String message) {
+        if (!running) return;
+        android.content.SharedPreferences prefs = getSharedPreferences("run", MODE_PRIVATE);
+        String currentLog = prefs.getString(PREF_SPEECH_LOG, "");
+        String updatedLog = currentLog.isEmpty() ? message : currentLog + "\n" + message;
+        prefs.edit().putString(PREF_SPEECH_LOG, updatedLog).apply();
+        publishUiUpdate();
+    }
+
+    private void publishUiUpdate() {
+        sendBroadcast(new Intent(ACTION_UI_UPDATE).setPackage(getPackageName()));
+    }
+
+    private String buildRunSummary(long elapsedMs) {
+        long totalSeconds = Math.max(0, Math.round(elapsedMs / 1000.0));
+        String duration = formatClock(totalSeconds);
+        String pace = totalDistanceMeters > 0
+                ? formatClock(Math.round(elapsedMs / totalDistanceMeters))
+                : "не рассчитан";
+        return "Время пробежки " + duration + ", средний темп " + pace;
+    }
+
+    private static String formatClock(long totalSeconds) {
+        long totalMinutes = totalSeconds / 60;
+        long seconds = totalSeconds % 60;
+        if (totalMinutes >= 60) {
+            return String.format(Locale.US, "%02d:%02d:%02d", totalMinutes / 60, totalMinutes % 60, seconds);
+        }
+        return String.format(Locale.US, "%02d:%02d", totalMinutes, seconds);
     }
 
     private String paceText() {
         if (!hasSpeed || speedMps <= 0) return "Ожидание GPS";
         int sec = (int)Math.round(1000.0 / speedMps);
-        return String.format(Locale.getDefault(), "%d:%02d мин/км", sec / 60, sec % 60);
+        return String.format(Locale.getDefault(), "%d:%02d", sec / 60, sec % 60);
     }
 
     private void updateNotification() {
@@ -202,7 +277,7 @@ public class RunService extends Service implements LocationListener, TextToSpeec
         Notification.Builder builder = Build.VERSION.SDK_INT >= 26 ? new Notification.Builder(this, CHANNEL) : new Notification.Builder(this);
         builder.setSmallIcon(android.R.drawable.ic_menu_mylocation).setContentTitle("RunHelper · пробежка")
                 .setContentText(content).setContentIntent(contentIntent).setOngoing(true).setOnlyAlertOnce(true)
-                .addAction(android.R.drawable.ic_media_pause, "Закончить", stopIntent);
+                .addAction(android.R.drawable.ic_media_pause, "Завершить", stopIntent);
         return builder.build();
     }
 
@@ -214,12 +289,20 @@ public class RunService extends Service implements LocationListener, TextToSpeec
     }
 
     private void stopRun() {
+        long elapsedMs = Math.max(0, SystemClock.elapsedRealtime() - startedAt);
+        String summary = buildRunSummary(elapsedMs);
         running = false;
         handler.removeCallbacks(ticker);
         try { locationManager.removeUpdates(this); } catch (Exception ignored) { }
         getSharedPreferences("run", MODE_PRIVATE).edit().putBoolean("running", false).apply();
         if (tts != null) { tts.stop(); tts.shutdown(); tts = null; }
-        if (Build.VERSION.SDK_INT >= 26 && focusRequest != null) audioManager.abandonAudioFocusRequest(focusRequest);
+        releaseDuck(activeUtteranceId);
+        pendingLogEntries.clear();
+        android.content.SharedPreferences prefs = getSharedPreferences("run", MODE_PRIVATE);
+        String currentLog = prefs.getString(PREF_SPEECH_LOG, "");
+        String finalLog = currentLog.isEmpty() ? summary : currentLog + "\n" + summary;
+        prefs.edit().putBoolean("running", false).putString(PREF_SPEECH_LOG, finalLog).apply();
+        publishUiUpdate();
         ((NotificationManager)getSystemService(NOTIFICATION_SERVICE)).cancel(NOTIFICATION_ID);
         stopForeground(true);
         stopSelf();
@@ -229,6 +312,22 @@ public class RunService extends Service implements LocationListener, TextToSpeec
         if (status == TextToSpeech.SUCCESS && tts != null) {
             int result = tts.setLanguage(new Locale("ru", "RU"));
             ttsReady = result != TextToSpeech.LANG_MISSING_DATA && result != TextToSpeech.LANG_NOT_SUPPORTED;
+            tts.setOnUtteranceProgressListener(new UtteranceProgressListener() {
+                @Override public void onStart(String utteranceId) { }
+                @Override public void onDone(String utteranceId) {
+                    handler.post(() -> {
+                        String logEntry = pendingLogEntries.remove(utteranceId);
+                        if (logEntry != null) appendSpeechLog(logEntry);
+                        releaseDuckAfterSpeech(utteranceId);
+                    });
+                }
+                @Override public void onError(String utteranceId) {
+                    handler.post(() -> {
+                        pendingLogEntries.remove(utteranceId);
+                        releaseDuckAfterSpeech(utteranceId);
+                    });
+                }
+            });
         }
     }
 
@@ -271,9 +370,9 @@ public class RunService extends Service implements LocationListener, TextToSpeec
     }
 
     @Override public void onProviderEnabled(String provider) { }
-    @Override public void onProviderDisabled(String provider) { hasSpeed = false; speedSamples.clear(); updateNotification(); }
+    @Override public void onProviderDisabled(String provider) { hasSpeed = false; speedSamples.clear(); lastSessionSample = null; updateNotification(); }
     @Override public void onStatusChanged(String provider, int status, Bundle extras) { }
     @Override public IBinder onBind(Intent intent) { return null; }
-    @Override public void onDestroy() { running = false; handler.removeCallbacks(ticker); try { locationManager.removeUpdates(this); } catch (Exception ignored) { } if (tts != null) tts.shutdown(); super.onDestroy(); }
+    @Override public void onDestroy() { running = false; handler.removeCallbacks(ticker); try { locationManager.removeUpdates(this); } catch (Exception ignored) { } if (tts != null) tts.shutdown(); releaseDuck(activeUtteranceId); super.onDestroy(); }
 }
 
