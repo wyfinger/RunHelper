@@ -1,0 +1,66 @@
+<resources>
+    <string name="app_name">RunHelper</string>
+    <string name="run_caption">Голосовые подсказки во время пробежки</string>
+    <string name="interval_label">Интервал подсказок, минут</string>
+    <string name="gps_hint">Во время бега приложение использует GPS и продолжает работу с выключенным экраном.</string>
+    <string name="privacy_note">Это бесплатное приложение с открытым исходным кодом без рекламы и трекеров.</string>
+    <string name="repository_url">https://github.com/wyfinger/RunHelper</string>
+    <string name="button_start">Начать</string>
+    <string name="button_finish">Завершить</string>
+    <string name="interval_error">Введите число от 1 до 120</string>
+    <string name="location_permission_required">Для отслеживания пробежки нужен доступ к геолокации</string>
+    <string name="gps_waiting">Ожидание GPS</string>
+    <string name="gps_waiting_ellipsis">Ожидание GPS…</string>
+    <string name="pace_not_available_yet">пока не рассчитан</string>
+    <string name="pace_not_available">не рассчитан</string>
+    <string name="speech_announcement">%1$s. Темп — %2$s</string>
+    <string name="speech_duration_minutes">%1$s %2$s</string>
+    <string name="speech_duration_hours">%1$s %2$s</string>
+    <string name="speech_duration_hours_minutes">%1$s %2$s, %3$s %4$s</string>
+    <string name="speech_pace">%1$s %2$s, %3$s %4$s</string>
+    <string name="log_pace">%1$s — темп %2$s</string>
+    <string name="run_summary">Время пробежки %1$s, средний темп %2$s</string>
+    <string name="notification_content">%1$d:%2$02d · %3$s</string>
+    <string name="notification_title">RunHelper · пробежка</string>
+    <string name="notification_channel">Пробежка</string>
+    <string name="tts_language">ru</string>
+
+    <plurals name="minute_unit">
+        <item quantity="one">минута</item>
+        <item quantity="few">минуты</item>
+        <item quantity="many">минут</item>
+        <item quantity="other">минут</item>
+    </plurals>
+    <plurals name="second_unit">
+        <item quantity="one">секунда</item>
+        <item quantity="few">секунды</item>
+        <item quantity="many">секунд</item>
+        <item quantity="other">секунд</item>
+    </plurals>
+    <plurals name="hour_unit">
+        <item quantity="one">час</item>
+        <item quantity="few">часа</item>
+        <item quantity="many">часов</item>
+        <item quantity="other">часов</item>
+    </plurals>
+
+    <string-array name="number_ones">
+        <item>ноль</item><item>одна</item><item>две</item><item>три</item><item>четыре</item>
+        <item>пять</item><item>шесть</item><item>семь</item><item>восемь</item><item>девять</item>
+    </string-array>
+    <string-array name="number_ones_masculine">
+        <item>ноль</item><item>один</item><item>два</item><item>три</item><item>четыре</item>
+        <item>пять</item><item>шесть</item><item>семь</item><item>восемь</item><item>девять</item>
+    </string-array>
+    <string-array name="number_teens">
+        <item>десять</item><item>одиннадцать</item><item>двенадцать</item><item>тринадцать</item><item>четырнадцать</item>
+        <item>пятнадцать</item><item>шестнадцать</item><item>семнадцать</item><item>восемнадцать</item><item>девятнадцать</item>
+    </string-array>
+    <string-array name="number_tens">
+        <item></item><item></item><item>двадцать</item><item>тридцать</item><item>сорок</item><item>пятьдесят</item>
+    </string-array>
+    <string-array name="number_hundreds">
+        <item></item><item>сто</item><item>двести</item><item>триста</item><item>четыреста</item>
+        <item>пятьсот</item><item>шестьсот</item><item>семьсот</item><item>восемьсот</item><item>девятьсот</item>
+    </string-array>
+</resources>

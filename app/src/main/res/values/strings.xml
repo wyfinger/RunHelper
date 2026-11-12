@@ -1,0 +1,60 @@
+<resources>
+    <string name="app_name">RunHelper</string>
+    <string name="run_caption">Voice notification on your run</string>
+    <string name="interval_label">Voice notification interval (minutes)</string>
+    <string name="gps_hint">During your run, the app uses GPS and keeps working when the screen is off.</string>
+    <string name="privacy_note">This is a free and open-source app with no ads or trackers.</string>
+    <string name="repository_url">https://github.com/wyfinger/RunHelper</string>
+    <string name="button_start">Start</string>
+    <string name="button_finish">Finish</string>
+    <string name="interval_error">Enter a number from 1 to 120</string>
+    <string name="location_permission_required">Location access is required to track your run</string>
+    <string name="gps_waiting">Waiting for GPS</string>
+    <string name="gps_waiting_ellipsis">Waiting for GPS…</string>
+    <string name="pace_not_available_yet">not available yet</string>
+    <string name="pace_not_available">not available</string>
+    <string name="speech_announcement">%1$s. Pace — %2$s</string>
+    <string name="speech_duration_minutes">%1$s %2$s</string>
+    <string name="speech_duration_hours">%1$s %2$s</string>
+    <string name="speech_duration_hours_minutes">%1$s %2$s, %3$s %4$s</string>
+    <string name="speech_pace">%1$s %2$s, %3$s %4$s</string>
+    <string name="log_pace">%1$s — pace %2$s</string>
+    <string name="run_summary">Run time %1$s, average pace %2$s</string>
+    <string name="notification_content">%1$d:%2$02d · %3$s</string>
+    <string name="notification_title">RunHelper · Run</string>
+    <string name="notification_channel">Run</string>
+    <string name="tts_language">en</string>
+
+    <plurals name="minute_unit">
+        <item quantity="one">minute</item>
+        <item quantity="other">minutes</item>
+    </plurals>
+    <plurals name="second_unit">
+        <item quantity="one">second</item>
+        <item quantity="other">seconds</item>
+    </plurals>
+    <plurals name="hour_unit">
+        <item quantity="one">hour</item>
+        <item quantity="other">hours</item>
+    </plurals>
+
+    <string-array name="number_ones">
+        <item>zero</item><item>one</item><item>two</item><item>three</item><item>four</item>
+        <item>five</item><item>six</item><item>seven</item><item>eight</item><item>nine</item>
+    </string-array>
+    <string-array name="number_ones_masculine">
+        <item>zero</item><item>one</item><item>two</item><item>three</item><item>four</item>
+        <item>five</item><item>six</item><item>seven</item><item>eight</item><item>nine</item>
+    </string-array>
+    <string-array name="number_teens">
+        <item>ten</item><item>eleven</item><item>twelve</item><item>thirteen</item><item>fourteen</item>
+        <item>fifteen</item><item>sixteen</item><item>seventeen</item><item>eighteen</item><item>nineteen</item>
+    </string-array>
+    <string-array name="number_tens">
+        <item></item><item></item><item>twenty</item><item>thirty</item><item>forty</item><item>fifty</item>
+    </string-array>
+    <string-array name="number_hundreds">
+        <item></item><item>one hundred</item><item>two hundred</item><item>three hundred</item><item>four hundred</item>
+        <item>five hundred</item><item>six hundred</item><item>seven hundred</item><item>eight hundred</item><item>nine hundred</item>
+    </string-array>
+</resources>

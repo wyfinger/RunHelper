@@ -1,6 +1,7 @@
-package ru.runhelper;
+package io.github.wyfinger.runhelper;
 
 import android.Manifest;
+import android.app.ActivityManager;
 import android.app.Activity;
 import android.content.BroadcastReceiver;
 import android.content.Context;
@@ -23,6 +24,8 @@ import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
 
+import java.util.List;
+
 public class MainActivity extends Activity {
     private static final int PERMISSIONS_REQUEST = 21;
     private EditText intervalInput;
@@ -42,7 +45,22 @@ public class MainActivity extends Activity {
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
         prefs = getSharedPreferences("run", MODE_PRIVATE);
+        boolean serviceActive = isRunServiceActive();
+        if (!prefs.getBoolean("running", false) || !serviceActive) {
+            if (serviceActive) stopService(new Intent(this, RunService.class));
+            prefs.edit().putBoolean("running", false).remove(RunService.PREF_SPEECH_LOG).apply();
+        }
         buildScreen();
+    }
+
+    @SuppressWarnings("deprecation")
+    private boolean isRunServiceActive() {
+        ActivityManager manager = (ActivityManager)getSystemService(ACTIVITY_SERVICE);
+        List<ActivityManager.RunningServiceInfo> services = manager.getRunningServices(Integer.MAX_VALUE);
+        for (ActivityManager.RunningServiceInfo service : services) {
+            if (RunService.class.getName().equals(service.service.getClassName())) return true;
+        }
+        return false;
     }
 
     private void buildScreen() {
@@ -53,21 +71,21 @@ public class MainActivity extends Activity {
         root.setBackgroundColor(Color.rgb(247, 249, 246));
 
         TextView title = new TextView(this);
-        title.setText("RunHelper");
+        title.setText(R.string.app_name);
         title.setTextSize(32);
         title.setTextColor(Color.rgb(30, 75, 52));
         title.setGravity(Gravity.CENTER);
         root.addView(title, new LinearLayout.LayoutParams(-1, dp(60)));
 
         TextView caption = new TextView(this);
-        caption.setText("Голосовые подсказки во время пробежки");
+        caption.setText(R.string.run_caption);
         caption.setTextSize(16);
         caption.setTextColor(Color.DKGRAY);
         caption.setGravity(Gravity.CENTER);
         root.addView(caption, new LinearLayout.LayoutParams(-1, dp(58)));
 
         TextView label = new TextView(this);
-        label.setText("Интервал подсказок, минут");
+        label.setText(R.string.interval_label);
         label.setTextSize(16);
         label.setTextColor(Color.DKGRAY);
         LinearLayout.LayoutParams labelParams = new LinearLayout.LayoutParams(-1, dp(44));
@@ -97,14 +115,14 @@ public class MainActivity extends Activity {
         root.addView(infoContainer, contentParams);
 
         TextView gpsHint = new TextView(this);
-        gpsHint.setText("Во время бега приложение использует GPS и продолжает работу с выключенным экраном.");
+        gpsHint.setText(R.string.gps_hint);
         gpsHint.setTextSize(14);
         gpsHint.setTextColor(Color.GRAY);
         gpsHint.setGravity(Gravity.CENTER);
         infoContainer.addView(gpsHint, new LinearLayout.LayoutParams(-1, -2));
 
         TextView privacyNote = new TextView(this);
-        privacyNote.setText("Это бесплатное приложение с открытым исходным кодом без рекламы и трекеров.");
+        privacyNote.setText(R.string.privacy_note);
         privacyNote.setTextSize(14);
         privacyNote.setTextColor(Color.rgb(65, 75, 68));
         privacyNote.setGravity(Gravity.CENTER);
@@ -113,7 +131,7 @@ public class MainActivity extends Activity {
         infoContainer.addView(privacyNote, privacyParams);
 
         TextView repositoryLink = new TextView(this);
-        String repositoryUrl = "https://github.com/wyfinger/RunHelper";
+        String repositoryUrl = getString(R.string.repository_url);
         SpannableString linkedUrl = new SpannableString(repositoryUrl);
         linkedUrl.setSpan(new URLSpan(repositoryUrl), 0, linkedUrl.length(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
         repositoryLink.setText(linkedUrl);
@@ -166,16 +184,15 @@ public class MainActivity extends Activity {
 
     private void onAction() {
         if (prefs.getBoolean("running", false)) {
+            actionButton.setEnabled(false);
             startService(new Intent(this, RunService.class).setAction(RunService.ACTION_STOP));
-            prefs.edit().putBoolean("running", false).apply();
-            syncScreen(false);
             return;
         }
         int minutes;
         try { minutes = Integer.parseInt(intervalInput.getText().toString().trim()); }
         catch (Exception e) { minutes = 1; }
         if (minutes < 1 || minutes > 120) {
-            intervalInput.setError("Введите число от 1 до 120");
+            intervalInput.setError(getString(R.string.interval_error));
             return;
         }
         prefs.edit().putInt("interval", minutes).apply();
@@ -206,7 +223,7 @@ public class MainActivity extends Activity {
         super.onRequestPermissionsResult(requestCode, permissions, results);
         if (requestCode == PERMISSIONS_REQUEST) {
             if (hasLocationPermission()) startRun(prefs.getInt("interval", 1));
-            else android.widget.Toast.makeText(this, "Для отслеживания пробежки нужен доступ к геолокации", android.widget.Toast.LENGTH_LONG).show();
+            else android.widget.Toast.makeText(this, R.string.location_permission_required, android.widget.Toast.LENGTH_LONG).show();
         }
     }
 
@@ -222,7 +239,8 @@ public class MainActivity extends Activity {
         boolean running = prefs.getBoolean("running", false);
         String log = prefs.getString(RunService.PREF_SPEECH_LOG, "");
         boolean showLog = running || !log.isEmpty();
-        actionButton.setText(running ? "Завершить" : "Начать");
+        actionButton.setText(running ? R.string.button_finish : R.string.button_start);
+        actionButton.setEnabled(true);
         intervalInput.setEnabled(!running);
         infoContainer.setVisibility(showLog ? View.GONE : View.VISIBLE);
         logScroll.setVisibility(showLog ? View.VISIBLE : View.GONE);

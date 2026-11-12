@@ -1,4 +1,4 @@
-package ru.runhelper;
+package io.github.wyfinger.runhelper;
 
 import android.Manifest;
 import android.app.Notification;
@@ -24,15 +24,13 @@ import android.speech.tts.TextToSpeech;
 import android.speech.tts.UtteranceProgressListener;
 
 import java.util.ArrayDeque;
-import java.util.HashMap;
 import java.util.Iterator;
 import java.util.Locale;
-import java.util.Map;
 
 public class RunService extends Service implements LocationListener, TextToSpeech.OnInitListener {
-    public static final String ACTION_START = "ru.runhelper.START";
-    public static final String ACTION_STOP = "ru.runhelper.STOP";
-    public static final String ACTION_UI_UPDATE = "ru.runhelper.UI_UPDATE";
+    public static final String ACTION_START = "io.github.wyfinger.runhelper.START";
+    public static final String ACTION_STOP = "io.github.wyfinger.runhelper.STOP";
+    public static final String ACTION_UI_UPDATE = "io.github.wyfinger.runhelper.UI_UPDATE";
     public static final String PREF_SPEECH_LOG = "speech_log";
     private static final String CHANNEL = "run_status";
     private static final int NOTIFICATION_ID = 7;
@@ -40,7 +38,6 @@ public class RunService extends Service implements LocationListener, TextToSpeec
     private static final long DUCK_TAIL_MS = 1_000L;
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final ArrayDeque<SpeedSample> speedSamples = new ArrayDeque<>();
-    private final Map<String, String> pendingLogEntries = new HashMap<>();
     private LocationManager locationManager;
     private TextToSpeech tts;
     private AudioManager audioManager;
@@ -90,7 +87,7 @@ public class RunService extends Service implements LocationListener, TextToSpeec
     @Override public int onStartCommand(Intent intent, int flags, int startId) {
         if (intent != null && ACTION_STOP.equals(intent.getAction())) { stopRun(); return START_NOT_STICKY; }
         if (intent != null && ACTION_START.equals(intent.getAction())) intervalMs = Math.max(1, intent.getIntExtra("interval", 1)) * 60_000L;
-        startForeground(NOTIFICATION_ID, buildNotification("Ожидание GPS…"));
+        startForeground(NOTIFICATION_ID, buildNotification(getString(R.string.gps_waiting_ellipsis)));
         if (!running) beginRun();
         return START_NOT_STICKY;
     }
@@ -141,16 +138,19 @@ public class RunService extends Service implements LocationListener, TextToSpeec
         if (!ttsReady || tts == null) return;
         long elapsedMs = SystemClock.elapsedRealtime() - startedAt;
         long minutes = Math.max(1, elapsedMs / 60_000L);
-        String message = numberWords(minutes) + " " + minuteForm(minutes) + ". Темп — ";
         int averagePace = averagePaceSecondsPerKm();
-        message += averagePace >= 0 ? paceSpeech(averagePace) : "пока не рассчитан";
-        String logEntry = formatClock(Math.round(elapsedMs / 1000.0)) + " — темп " +
-                (averagePace >= 0 ? formatClock(averagePace) : " не рассчитан");
+        String pace = averagePace >= 0 ? paceSpeech(averagePace) : getString(R.string.pace_not_available_yet);
+        String elapsedTime = elapsedTimeSpeech(minutes);
+        String message = getString(R.string.speech_announcement, elapsedTime, pace);
+        // The ticker checks once per second, so snap the logged time to the completed minute.
+        long loggedElapsedMs = (elapsedMs / 60_000L) * 60_000L;
+        String logEntry = getString(R.string.log_pace, formatClock(loggedElapsedMs / 1000L),
+                averagePace >= 0 ? formatClock(averagePace) : getString(R.string.pace_not_available));
         String utteranceId = "runhelper_" + SystemClock.elapsedRealtime();
+        appendSpeechLog(logEntry);
         requestDuck(utteranceId);
         if (tts.speak(message, TextToSpeech.QUEUE_FLUSH, null, utteranceId) == TextToSpeech.ERROR)
             releaseDuck(utteranceId);
-        else pendingLogEntries.put(utteranceId, logEntry);
     }
 
     private void trimSpeedSamples(long cutoffMs) {
@@ -194,8 +194,21 @@ public class RunService extends Service implements LocationListener, TextToSpeec
     private String paceSpeech(int totalSeconds) {
         int paceMinutes = totalSeconds / 60;
         int paceSeconds = totalSeconds % 60;
-        return numberWords(paceMinutes) + " " + minuteForm(paceMinutes) + ", " +
-                numberWords(paceSeconds) + " " + secondForm(paceSeconds);
+        return getString(R.string.speech_pace, numberWords(paceMinutes), minuteForm(paceMinutes),
+                numberWords(paceSeconds), secondForm(paceSeconds));
+    }
+
+    private String elapsedTimeSpeech(long totalMinutes) {
+        long hours = totalMinutes / 60;
+        long minutes = totalMinutes % 60;
+        if (hours == 0)
+            return getString(R.string.speech_duration_minutes, numberWords(minutes), minuteForm(minutes));
+        String hourCount = numberWords(hours, true);
+        String hourUnit = getResources().getQuantityString(R.plurals.hour_unit, (int)hours);
+        if (minutes == 0)
+            return getString(R.string.speech_duration_hours, hourCount, hourUnit);
+        return getString(R.string.speech_duration_hours_minutes, hourCount, hourUnit,
+                numberWords(minutes), minuteForm(minutes));
     }
 
     private void requestDuck(String utteranceId) {
@@ -243,8 +256,8 @@ public class RunService extends Service implements LocationListener, TextToSpeec
         String duration = formatClock(totalSeconds);
         String pace = totalDistanceMeters > 0
                 ? formatClock(Math.round(elapsedMs / totalDistanceMeters))
-                : "не рассчитан";
-        return "Время пробежки " + duration + ", средний темп " + pace;
+                : getString(R.string.pace_not_available);
+        return getString(R.string.run_summary, duration, pace);
     }
 
     private static String formatClock(long totalSeconds) {
@@ -257,7 +270,7 @@ public class RunService extends Service implements LocationListener, TextToSpeec
     }
 
     private String paceText() {
-        if (!hasSpeed || speedMps <= 0) return "Ожидание GPS";
+        if (!hasSpeed || speedMps <= 0) return getString(R.string.gps_waiting);
         int sec = (int)Math.round(1000.0 / speedMps);
         return String.format(Locale.getDefault(), "%d:%02d", sec / 60, sec % 60);
     }
@@ -265,7 +278,7 @@ public class RunService extends Service implements LocationListener, TextToSpeec
     private void updateNotification() {
         if (!running) return;
         long elapsed = (SystemClock.elapsedRealtime() - startedAt) / 1000L;
-        String content = String.format(Locale.getDefault(), "%d:%02d · %s", elapsed / 60, elapsed % 60, paceText());
+        String content = String.format(Locale.getDefault(), getString(R.string.notification_content), elapsed / 60, elapsed % 60, paceText());
         ((NotificationManager)getSystemService(NOTIFICATION_SERVICE)).notify(NOTIFICATION_ID, buildNotification(content));
     }
 
@@ -275,15 +288,15 @@ public class RunService extends Service implements LocationListener, TextToSpeec
         Intent stop = new Intent(this, RunService.class).setAction(ACTION_STOP);
         PendingIntent stopIntent = PendingIntent.getService(this, 2, stop, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
         Notification.Builder builder = Build.VERSION.SDK_INT >= 26 ? new Notification.Builder(this, CHANNEL) : new Notification.Builder(this);
-        builder.setSmallIcon(android.R.drawable.ic_menu_mylocation).setContentTitle("RunHelper · пробежка")
+        builder.setSmallIcon(android.R.drawable.ic_menu_mylocation).setContentTitle(getString(R.string.notification_title))
                 .setContentText(content).setContentIntent(contentIntent).setOngoing(true).setOnlyAlertOnce(true)
-                .addAction(android.R.drawable.ic_media_pause, "Завершить", stopIntent);
+                .addAction(android.R.drawable.ic_media_pause, getString(R.string.button_finish), stopIntent);
         return builder.build();
     }
 
     private void createChannel() {
         if (Build.VERSION.SDK_INT >= 26) {
-            NotificationChannel channel = new NotificationChannel(CHANNEL, "Пробежка", NotificationManager.IMPORTANCE_LOW);
+            NotificationChannel channel = new NotificationChannel(CHANNEL, getString(R.string.notification_channel), NotificationManager.IMPORTANCE_LOW);
             ((NotificationManager)getSystemService(NOTIFICATION_SERVICE)).createNotificationChannel(channel);
         }
     }
@@ -297,7 +310,6 @@ public class RunService extends Service implements LocationListener, TextToSpeec
         getSharedPreferences("run", MODE_PRIVATE).edit().putBoolean("running", false).apply();
         if (tts != null) { tts.stop(); tts.shutdown(); tts = null; }
         releaseDuck(activeUtteranceId);
-        pendingLogEntries.clear();
         android.content.SharedPreferences prefs = getSharedPreferences("run", MODE_PRIVATE);
         String currentLog = prefs.getString(PREF_SPEECH_LOG, "");
         String finalLog = currentLog.isEmpty() ? summary : currentLog + "\n" + summary;
@@ -310,42 +322,30 @@ public class RunService extends Service implements LocationListener, TextToSpeec
 
     @Override public void onInit(int status) {
         if (status == TextToSpeech.SUCCESS && tts != null) {
-            int result = tts.setLanguage(new Locale("ru", "RU"));
+            int result = tts.setLanguage(new Locale(getString(R.string.tts_language)));
             ttsReady = result != TextToSpeech.LANG_MISSING_DATA && result != TextToSpeech.LANG_NOT_SUPPORTED;
             tts.setOnUtteranceProgressListener(new UtteranceProgressListener() {
                 @Override public void onStart(String utteranceId) { }
-                @Override public void onDone(String utteranceId) {
-                    handler.post(() -> {
-                        String logEntry = pendingLogEntries.remove(utteranceId);
-                        if (logEntry != null) appendSpeechLog(logEntry);
-                        releaseDuckAfterSpeech(utteranceId);
-                    });
-                }
-                @Override public void onError(String utteranceId) {
-                    handler.post(() -> {
-                        pendingLogEntries.remove(utteranceId);
-                        releaseDuckAfterSpeech(utteranceId);
-                    });
-                }
+                @Override public void onDone(String utteranceId) { handler.post(() -> releaseDuckAfterSpeech(utteranceId)); }
+                @Override public void onError(String utteranceId) { handler.post(() -> releaseDuckAfterSpeech(utteranceId)); }
             });
         }
     }
 
-    private static String minuteForm(long n) {
-        long a = Math.abs(n) % 100;
-        if (a >= 11 && a <= 14) return "минут";
-        switch ((int)(Math.abs(n) % 10)) { case 1: return "минута"; case 2: case 3: case 4: return "минуты"; default: return "минут"; }
+    private String minuteForm(long n) {
+        return getResources().getQuantityString(R.plurals.minute_unit, (int)Math.abs(n));
     }
-    private static String secondForm(long n) {
-        long a = Math.abs(n) % 100;
-        if (a >= 11 && a <= 14) return "секунд";
-        switch ((int)(Math.abs(n) % 10)) { case 1: return "секунда"; case 2: case 3: case 4: return "секунды"; default: return "секунд"; }
+    private String secondForm(long n) {
+        return getResources().getQuantityString(R.plurals.second_unit, (int)Math.abs(n));
     }
-    private static String numberWords(long n) {
-        String[] ones = {"ноль", "одна", "две", "три", "четыре", "пять", "шесть", "семь", "восемь", "девять"};
-        String[] teens = {"десять", "одиннадцать", "двенадцать", "тринадцать", "четырнадцать", "пятнадцать", "шестнадцать", "семнадцать", "восемнадцать", "девятнадцать"};
-        String[] tens = {"", "", "двадцать", "тридцать", "сорок", "пятьдесят"};
-        String[] hundreds = {"", "сто", "двести", "триста", "четыреста", "пятьсот", "шестьсот", "семьсот", "восемьсот", "девятьсот"};
+    private String numberWords(long n) {
+        return numberWords(n, false);
+    }
+    private String numberWords(long n, boolean masculine) {
+        String[] ones = getResources().getStringArray(masculine ? R.array.number_ones_masculine : R.array.number_ones);
+        String[] teens = getResources().getStringArray(R.array.number_teens);
+        String[] tens = getResources().getStringArray(R.array.number_tens);
+        String[] hundreds = getResources().getStringArray(R.array.number_hundreds);
         if (n < 0 || n > 999) return Long.toString(n);
         StringBuilder words = new StringBuilder();
         if (n >= 100) {
@@ -373,6 +373,6 @@ public class RunService extends Service implements LocationListener, TextToSpeec
     @Override public void onProviderDisabled(String provider) { hasSpeed = false; speedSamples.clear(); lastSessionSample = null; updateNotification(); }
     @Override public void onStatusChanged(String provider, int status, Bundle extras) { }
     @Override public IBinder onBind(Intent intent) { return null; }
-    @Override public void onDestroy() { running = false; handler.removeCallbacks(ticker); try { locationManager.removeUpdates(this); } catch (Exception ignored) { } if (tts != null) tts.shutdown(); releaseDuck(activeUtteranceId); super.onDestroy(); }
+    @Override public void onDestroy() { running = false; handler.removeCallbacks(ticker); try { locationManager.removeUpdates(this); } catch (Exception ignored) { } if (tts != null) tts.shutdown(); releaseDuck(activeUtteranceId); stopForeground(true); super.onDestroy(); }
 }
 
