@@ -57,7 +57,8 @@
         <item>пятнадцать</item><item>шестнадцать</item><item>семнадцать</item><item>восемнадцать</item><item>девятнадцать</item>
     </string-array>
     <string-array name="number_tens">
-        <item></item><item></item><item>двадцать</item><item>тридцать</item><item>сорок</item><item>пятьдесят</item>
+        <item></item><item></item><item>двадцать</item><item>тридцать</item>
+        <item>со́рок</item><item>пятьдесят</item>
     </string-array>
     <string-array name="number_hundreds">
         <item></item><item>сто</item><item>двести</item><item>триста</item><item>четыреста</item>
